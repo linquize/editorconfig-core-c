@@ -50,6 +50,7 @@ if(BUILD_DOCUMENTATION)
             ${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile.in
             DEPENDS
             ${PROJECT_SOURCE_DIR}/include/editorconfig/editorconfig.h
+            ${PROJECT_SOURCE_DIR}/include/editorconfig/editorconfig_filesystem.h
             ${PROJECT_SOURCE_DIR}/include/editorconfig/editorconfig_handle.h
             ${PROJECT_SOURCE_DIR}/logo/logo.png
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})

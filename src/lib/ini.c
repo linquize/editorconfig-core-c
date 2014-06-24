@@ -97,7 +97,7 @@ static char* strncpy0(char* dest, const char* src, size_t size)
 
 /* See documentation in header file. */
 EDITORCONFIG_LOCAL
-int ini_parse_file(FILE* file,
+int ini_parse_file(editorconfig_filesystem* fs, editorconfig_filesystem_pointer file,
                    int (*handler)(void*, const char*, const char*,
                                   const char*),
                    void* user)
@@ -115,7 +115,7 @@ int ini_parse_file(FILE* file,
     int error = 0;
 
     /* Scan through file line by line */
-    while (fgets(line, sizeof(line), file) != NULL) {
+    while (fs->read_file(fs, line, sizeof(line), file) != NULL) {
         lineno++;
 
         start = line;
@@ -184,17 +184,17 @@ int ini_parse_file(FILE* file,
 
 /* See documentation in header file. */
 EDITORCONFIG_LOCAL
-int ini_parse(const char* filename,
+int ini_parse(editorconfig_filesystem* fs, const char* filename,
               int (*handler)(void*, const char*, const char*, const char*),
               void* user)
 {
-    FILE* file;
+    editorconfig_filesystem_pointer file;
     int error;
-
-    file = fopen(filename, "r");
-    if (!file)
+    file = fs->open_file(fs, filename);
+    if (file == NULL)
         return -1;
-    error = ini_parse_file(file, handler, user);
-    fclose(file);
+
+    error = ini_parse_file(fs, file, handler, user);
+    fs->close_file(fs, file);
     return error;
 }

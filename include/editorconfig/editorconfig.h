@@ -191,6 +191,7 @@
 #endif
 
 #include <editorconfig/editorconfig_handle.h>
+#include <editorconfig/editorconfig_filesystem.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -232,6 +233,9 @@ extern "C" {
  */
 EDITORCONFIG_EXPORT
 int editorconfig_parse(const char* full_filename, editorconfig_handle h);
+
+EDITORCONFIG_EXPORT
+int editorconfig_parse2(const char* full_filename, editorconfig_handle h, editorconfig_filesystem *fs);
 
 /*!
  * @brief Get the error message from the error number returned by

@@ -36,6 +36,7 @@ http://code.google.com/p/inih/
 #define __INI_H__
 
 #include "global.h"
+#include "editorconfig_filesystem.h"
 
 /* Make this header file easier to include in C++ code */
 #ifdef __cplusplus
@@ -57,7 +58,7 @@ extern "C" {
    stop on first error), or -1 on file open error.
 */
 EDITORCONFIG_LOCAL
-int ini_parse(const char* filename,
+int ini_parse(editorconfig_filesystem* fs, const char* filename,
               int (*handler)(void* user, const char* section,
                              const char* name, const char* value),
               void* user);
@@ -65,7 +66,7 @@ int ini_parse(const char* filename,
 /* Same as ini_parse(), but takes a FILE* instead of filename. This doesn't
    close the file when it's finished -- the caller must do that. */
 EDITORCONFIG_LOCAL
-int ini_parse_file(FILE* file,
+int ini_parse_file(editorconfig_filesystem* fs, editorconfig_filesystem_pointer file,
                    int (*handler)(void* user, const char* section,
                                   const char* name, const char* value),
                    void* user);

@@ -26,6 +26,7 @@
 
 install(FILES
     editorconfig/editorconfig.h
+    editorconfig/editorconfig_filesystem.h
     editorconfig/editorconfig_handle.h
     DESTINATION include/editorconfig)
 

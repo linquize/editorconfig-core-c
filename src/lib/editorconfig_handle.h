@@ -40,6 +40,8 @@ struct editorconfig_name_value
     char*       name;
     /*! EditorConfig config item's value. */ 
     char*       value;
+    /*! EditorConfig config item's file index. */ 
+    int         file_index;
 };
 
 /*!

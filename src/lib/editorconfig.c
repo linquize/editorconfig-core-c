@@ -41,7 +41,15 @@ typedef struct
 
 typedef struct
 {
+    int* ptr;
+    int count;
+    int size;
+} array_of_int;
+
+typedef struct
+{
     editorconfig_name_value*                name_values;
+    array_of_int                            file_counts;
     int                                     current_value_count;
     int                                     max_value_count;
     special_property_name_value_pointers    spnvp;
@@ -52,6 +60,8 @@ typedef struct
     char*                           full_filename;
     char*                           editorconfig_file_dir;
     array_editorconfig_name_value   array_name_value;
+    int                             root;
+    int                             file_index;
 } handler_first_param;
 
 /*
@@ -131,7 +141,7 @@ static void array_editorconfig_name_value_init(
 
 static int array_editorconfig_name_value_add(
         array_editorconfig_name_value* aenv,
-        const char* name, const char* value)
+        const char* name, const char* value, int file_index)
 {
 #define VALUE_COUNT_INITIAL      30
 #define VALUE_COUNT_INCREASEMENT 10
@@ -159,6 +169,8 @@ static int array_editorconfig_name_value_add(
             aenv->name_values, aenv->current_value_count, name_lwr);
 
     if (name_value_pos >= 0) { /* current name has already been used */
+        if (file_index != 0 && aenv->name_values[name_value_pos].file_index != file_index)
+            return 0;
         free(aenv->name_values[name_value_pos].value);
         set_name_value(&aenv->name_values[name_value_pos],
                 (const char*)NULL, value, &aenv->spnvp);
@@ -187,6 +199,25 @@ static int array_editorconfig_name_value_add(
         reset_special_property_name_value_pointers(aenv);
     }
 
+    if (file_index >= aenv->file_counts.count) {
+        if (file_index >= aenv->file_counts.size) {
+            int new_size = aenv->file_counts.count + VALUE_COUNT_INCREASEMENT;
+            int* ptr = (int*)realloc(aenv->file_counts.ptr,
+                    sizeof(int) * new_size);
+            if (ptr == NULL) /* error occured */
+                return -1;
+
+            memset(ptr + file_index, 0, sizeof(int) * (aenv->file_counts.size - new_size));
+            aenv->file_counts.ptr = ptr;
+            aenv->file_counts.size = new_size;
+            aenv->file_counts.count = file_index + 1;
+        }
+        else
+            aenv->file_counts.count = file_index + 1;
+    }
+
+    aenv->name_values[aenv->current_value_count].file_index = file_index;
+    aenv->file_counts.ptr[file_index]++;
     set_name_value(&aenv->name_values[aenv->current_value_count],
             name_lwr, value, &aenv->spnvp);
     ++ aenv->current_value_count;
@@ -207,6 +238,8 @@ static void array_editorconfig_name_value_clear(
     }
 
     free(aenv->name_values);
+    if (aenv->file_counts.ptr)
+        free(aenv->file_counts.ptr);
 }
 
 /*
@@ -223,9 +256,7 @@ static int ini_handler(void* hfp, const char* section, const char* name,
     /* root = true, clear all previous values */
     if (*section == '\0' && !strcasecmp(name, "root") &&
             !strcasecmp(value, "true")) {
-        array_editorconfig_name_value_clear(&hfparam->array_name_value);
-        array_editorconfig_name_value_init(&hfparam->array_name_value);
-        return 1;
+        hfparam->root = 1;
     }
 
     /* pattern would be: /dir/of/editorconfig/file[double_star]/[section] if
@@ -249,7 +280,7 @@ static int ini_handler(void* hfp, const char* section, const char* name,
 
     if (ec_fnmatch(pattern, hfparam->full_filename, EC_FNM_PATHNAME) == 0) {
         if (array_editorconfig_name_value_add(&hfparam->array_name_value, name,
-                value)) {
+                value, hfparam->file_index)) {
             free(pattern);
             return 0;
         }
@@ -285,52 +316,6 @@ static void split_file_path(char** directory, char** filename,
     if (filename != NULL) {
         *filename = strndup(path_char+1, strlen(path_char)-1);
     }
-}
-
-/*
- * Return the number of slashes in given filename
- */
-static int count_slashes(const char* filename)
-{
-    int slash_count;
-    for (slash_count = 0; *filename != '\0'; filename++) {
-        if (*filename == '/') {
-            slash_count++;
-        }
-    }
-    return slash_count;
-}
-
-/*
- * Return an array of full filenames for files in every directory in and above
- * the given path with the name of the relative filename given.
- */
-static char** get_filenames(const char* path, const char* filename)
-{
-    char* currdir;
-    char* currdir1;
-    char** files;
-    int slashes = count_slashes(path);
-    int i;
-
-    files = (char**) calloc(slashes+1, sizeof(char*));
-
-    currdir = strdup(path);
-    for (i = slashes - 1; i >= 0; --i) {
-        currdir1 = currdir;
-        split_file_path(&currdir, NULL, currdir1);
-        free(currdir1);
-        files[i] = malloc(strlen(currdir) + strlen(filename) + 2);
-        strcpy(files[i], currdir);
-        strcat(files[i], "/");
-        strcat(files[i], filename);
-    }
-
-    free(currdir);
-
-    files[slashes] = NULL;
-
-    return files;
 }
 
 /*
@@ -387,14 +372,23 @@ const char* editorconfig_get_error_msg(int err_num)
 EDITORCONFIG_EXPORT
 int editorconfig_parse(const char* full_filename, editorconfig_handle h)
 {
+    editorconfig_filesystem* fs = editorconfig_filesystem_default_init();
+    int result = editorconfig_parse2(full_filename, h, fs);
+    editorconfig_filesystem_default_destroy(fs);
+    return result;
+}
+
+EDITORCONFIG_EXPORT
+int editorconfig_parse2(const char* full_filename, editorconfig_handle h, editorconfig_filesystem* fs)
+{
     handler_first_param                 hfp;
-    char**                              config_file;
-    char**                              config_files;
+    const char*                         config_file;
     int                                 err_num;
     int                                 i;
     struct editorconfig_handle*         eh = (struct editorconfig_handle*)h;
     struct editorconfig_version         cur_ver;
     struct editorconfig_version         tmp_ver;
+    editorconfig_conf_file_iterator     it;
 
     /* get current version */
     editorconfig_get_version(&cur_ver.major, &cur_ver.minor,
@@ -432,36 +426,32 @@ int editorconfig_parse(const char* full_filename, editorconfig_handle h)
     }
     memset(&hfp, 0, sizeof(hfp));
 
-    hfp.full_filename = strdup(full_filename);
-
     /* return an error if file path is not absolute */
-    if (!is_file_path_absolute(full_filename)) {
+    if (!fs->check_filename(fs, full_filename)) {
         return EDITORCONFIG_PARSE_NOT_FULL_PATH;
     }
 
-#ifdef WIN32
-    /* replace all backslashes with slashes on Windows */
-    str_replace(hfp.full_filename, '\\', '/');
-#endif
+    hfp.full_filename = fs->normalize_filename(fs, full_filename);
 
     array_editorconfig_name_value_init(&hfp.array_name_value);
 
-    config_files = get_filenames(hfp.full_filename, eh->conf_file_name);
-    for (config_file = config_files; *config_file != NULL; config_file++) {
-        split_file_path(&hfp.editorconfig_file_dir, NULL, *config_file);
-        if ((err_num = ini_parse(*config_file, ini_handler, &hfp)) != 0 &&
+    it = fs->list_conf_files(fs, hfp.full_filename, eh->conf_file_name);
+    while (!hfp.root && (config_file = fs->next_conf_file(it)) != NULL) {
+        hfp.file_index++;
+        split_file_path(&hfp.editorconfig_file_dir, NULL, config_file);
+        if ((err_num = ini_parse(fs, config_file, ini_handler, &hfp)) != 0 &&
                 /* ignore error caused by I/O, maybe caused by non exist file */
                 err_num != -1) {
-            eh->err_file = strdup(*config_file);
-            free(*config_file);
-            free(hfp.full_filename);
+            eh->err_file = strdup(config_file);
+            fs->free_normalize_filename(fs, hfp.full_filename);
             free(hfp.editorconfig_file_dir);
+            fs->free_list_conf_files(it);
             return err_num;
         }
 
         free(hfp.editorconfig_file_dir);
-        free(*config_file);
     }
+    fs->free_list_conf_files(it);
 
     /* value proprocessing */
 
@@ -474,14 +464,14 @@ int editorconfig_parse(const char* full_filename, editorconfig_handle h)
                 !hfp.array_name_value.spnvp.indent_size &&
                 !strcmp(hfp.array_name_value.spnvp.indent_style->value, "tab"))
             array_editorconfig_name_value_add(&hfp.array_name_value,
-                    "indent_size", "tab");
+                    "indent_size", "tab", 0);
     /* Set indent_size to tab_width if indent_size is "tab" and tab_width is
      * specified. This behavior is specified for v0.9 and up. */
         if (hfp.array_name_value.spnvp.indent_size &&
             hfp.array_name_value.spnvp.tab_width &&
             !strcmp(hfp.array_name_value.spnvp.indent_size->value, "tab"))
         array_editorconfig_name_value_add(&hfp.array_name_value, "indent_size",
-                hfp.array_name_value.spnvp.tab_width->value);
+                hfp.array_name_value.spnvp.tab_width->value, 0);
     }
 
     /* Set tab_width to indent_size if indent_size is specified. If version is
@@ -492,13 +482,12 @@ int editorconfig_parse(const char* full_filename, editorconfig_handle h)
             (editorconfig_compare_version(&eh->ver, &tmp_ver) < 0 ||
              strcmp(hfp.array_name_value.spnvp.indent_size->value, "tab")))
         array_editorconfig_name_value_add(&hfp.array_name_value, "tab_width",
-                hfp.array_name_value.spnvp.indent_size->value);
+                hfp.array_name_value.spnvp.indent_size->value, 0);
 
     eh->name_value_count = hfp.array_name_value.current_value_count;
 
     if (eh->name_value_count == 0) {  /* no value is set, just return 0. */
-        free(hfp.full_filename);
-        free(config_files);
+        fs->free_normalize_filename(fs, hfp.full_filename);
         return 0;
     }
     eh->name_values = hfp.array_name_value.name_values;
@@ -506,12 +495,11 @@ int editorconfig_parse(const char* full_filename, editorconfig_handle h)
             eh->name_values,
             sizeof(editorconfig_name_value) * eh->name_value_count);
     if (eh->name_values == NULL) {
-        free(hfp.full_filename);
+        fs->free_normalize_filename(fs, hfp.full_filename);
         return EDITORCONFIG_PARSE_MEMORY_ERROR;
     }
 
-    free(hfp.full_filename);
-    free(config_files);
+    fs->free_normalize_filename(fs, hfp.full_filename);
 
     return 0;
 }
